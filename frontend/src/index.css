@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-800 antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-white/80 backdrop-blur-sm border border-white/50 shadow-lg shadow-slate-200/50 rounded-2xl;
+  }
+
+  .gradient-border {
+    position: relative;
+    background: white;
+    border-radius: 1rem;
+  }
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .gradient-border:hover::before {
+    opacity: 1;
+  }
+
+  .btn-primary {
+    @apply px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium rounded-xl
+           shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02]
+           active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100;
+  }
+
+  .btn-secondary {
+    @apply px-5 py-2.5 bg-white text-slate-700 font-medium rounded-xl border border-slate-200
+           shadow-sm hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all duration-200;
+  }
+
+  .tab-active {
+    @apply text-blue-600 border-b-2 border-blue-600 bg-blue-50/50;
+  }
+
+  .tab-inactive {
+    @apply text-slate-500 hover:text-slate-700 hover:bg-slate-50/50;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold;
+  }
+
+  .stage-card {
+    @apply relative bg-white rounded-2xl border border-slate-100 shadow-sm
+           hover:shadow-xl hover:shadow-slate-200/50 hover:-translate-y-0.5
+           transition-all duration-300 overflow-hidden;
+  }
+
+  .stage-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .stage-card:hover::after {
+    opacity: 1;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.4s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+
+  .markdown-body {
+    @apply prose prose-slate max-w-none prose-headings:text-slate-800 prose-p:text-slate-600
+           prose-strong:text-slate-800 prose-code:text-pink-600 prose-code:bg-pink-50
+           prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-blockquote:border-l-blue-500
+           prose-blockquote:bg-blue-50/50 prose-blockquote:py-1 prose-blockquote:px-4
+           prose-blockquote:rounded-r-lg;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}

@@ -1,0 +1,335 @@
+# 测试策略
+
+## 需求分析
+- 识别设备类型: CXL
+- 自动检测: 否
+
+### 分析摘要
+使用用户指定类型
+
+## 调度模式
+pipeline
+
+## 选中专家
+- CXL Expert
+- CXL Protocol Expert
+- Security Expert
+- Type3 Device Expert
+- Physical Layer Expert
+- CXL RAS Expert
+- NVMe Expert
+- QoS Expert
+
+---
+
+[调用错误] 
+
+---
+
+[调用错误] 
+
+---
+
+[调用错误] 
+
+---
+
+[调用错误] 
+
+---
+
+基于您提供的CXL Type 3设备PRD，以下是针对该设备的**RAS（Reliability, Availability, Serviceability）专项测试策略**。本策略重点验证内存子系统可靠性、链路完整性、错误恢复机制及可服务性特性。
+
+---
+
+# CXL Type 3 设备 RAS 测试策略文档
+
+**文档版本**: 1.0  
+**适用设备**: CXL Type 3 内存扩展设备 (128GB-2TB)  
+**协议版本**: CXL 2.0/3.0/3.1/3.2  
+**测试重点**: RAS 功能验证与缺陷预测  
+
+---
+
+## 1. 测试目标
+
+### 1.1 核心目标
+- **数据完整性保障**: 验证SECDED ECC、Poison机制、链路CRC在各类故障场景下的数据保护能力
+- **故障容错验证**: 确认设备在单bit/双bit错误、链路重传、温度异常等场景下的持续可用性
+- **可服务性确认**: 验证事件日志记录、SMART监控、热维护（PPR/sPPR）功能的准确性与实时性
+- **故障预测能力**: 通过错误计数趋势分析，验证设备对潜在故障的预警机制
+
+### 1.2 测试覆盖矩阵
+| RAS 特性 | 测试覆盖率目标 | 关键验证点 |
+|---------|--------------|-----------|
+| 内存ECC | 100% | On-Die ECC + Side-band ECC协同工作 |
+| 链路重传 | 100% | LLR (Link Layer Retry) 触发阈值与恢复 |
+| Poison管理 | 100% | 注入、传播、清除全生命周期 |
+| PPR修复 | 100% | sPPR/hPPR触发条件与修复验证 |
+| 事件日志 | 100% | 四级日志分类与中断通知 |
+
+---
+
+## 2. 核心测试项（带判定标准）
+
+### 2.1 内存子系统可靠性测试
+
+#### TEST-RAS-001: SECDED ECC 功能验证
+**测试目的**: 验证单符号纠错(SEC)和双符号检测(DED)能力
+
+**测试步骤**:
+1. 使用内存错误注入工具在特定DPA地址注入单bit错误
+2. 读取该地址，验证数据正确性（应自动纠正）
+3. 注入双bit错误（相邻或随机位置）
+4. 验证设备上报Uncorrectable Error并触发Poison
+
+**判定标准**:
+- ✅ Pass: 单bit错误静默纠正，Corrected Error计数器+1，系统无报错
+- ✅ Pass: 双bit错误触发UE，数据标记为Poison，SMART中Uncorrected Errors计数器+1
+- ❌ Fail: 单bit错误未被纠正导致数据静默损坏
+- ❌ Fail: 双bit错误未触发Poison导致错误数据传播
+
+#### TEST-RAS-002: Patrol Scrubbing 有效性
+**测试目的**: 验证后台巡检刷洗机制能发现并修复潜在错误
+
+**测试步骤**:
+1. 注入单bit错误后，禁止立即访问该地址
+2. 监测Patrol Scrubbing周期（通常24-72小时覆盖全地址空间）
+3. 检查该地址错误是否被纠正且计入Corrected Errors
+
+**判定标准**:
+- ✅ Pass: 在Patrol Scrubbing周期内，静默错误被检测并纠正
+- ✅ Pass: 设备温度升高时（>55°C），Scrubbing频率自动提升（如适用）
+- ❌ Fail: 错误地址未被Scrubbing覆盖或纠正失败
+
+#### TEST-RAS-003: Demand Scrubbing 验证
+**测试目的**: 验证读操作触发的即时刷洗
+
+**测试步骤**:
+1. 注入可纠正错误至地址A
+2. 执行读操作访问地址A
+3. 立即再次读取，验证无错误计数增加
+
+**判定标准**:
+- ✅ Pass: 首次读取纠正错误，第二次读取无ECC事件
+- ✅ Pass: 纠正后的数据写回内存（Read-Modify-Write验证）
+
+### 2.2 后封装修复 (PPR) 测试
+
+#### TEST-RAS-004: Soft PPR (sPPR) 功能
+**测试目的**: 验证软件触发行修复能力（CXL 3.2+）
+
+**测试步骤**:
+1. 通过Mailbox命令 `0x4301` (Inject Poison) 模拟硬错误
+2. 发送sPPR触发命令（Vendor Specific或标准Mailbox）
+3. 验证备用行替换故障行
+4. 清除Poison后反复读写验证稳定性
+
+**判定标准**:
+- ✅ Pass: sPPR命令成功执行，设备返回成功状态码
+- ✅ Pass: 修复后地址读写正常，无ECC错误
+- ✅ Pass: PPR记录持久化（断电重启后仍有效）
+- ❌ Fail: 修复后短期内（1000次访问内）再次出现错误
+
+#### TEST-RAS-005: Hardware PPR (hPPR) 启动修复
+**测试目的**: 验证启动时硬件自动修复
+
+**测试步骤**:
+1. 制造行故障（或通过仿真）
+2. 冷重启设备
+3. 检查启动日志中的hPPR修复记录
+4. 验证CFMWS中内存容量未减少（修复成功）
+
+**判定标准**:
+- ✅ Pass: 启动时自动检测并修复，无需OS介入
+- ✅ Pass: 修复事件记录至Event Log (Informational级别)
+
+### 2.3 Poison 管理测试
+
+#### TEST-RAS-006: Poison 注入与传播控制
+**测试目的**: 验证毒化机制防止错误数据扩散
+
+**测试步骤**:
+1. 通过Mailbox `Inject Poison` (0x4301) 注入特定DPA
+2. 读取该DPA，验证返回数据带Poison标记（如CXL.mem协议中的Poison位）
+3. 写入新数据至该地址，验证Poison自动清除
+4. 验证Poison List (0x4300) 查询准确性
+
+**判定标准**:
+- ✅ Pass: 注入后读取触发Poison Event，CPU MCE（Machine Check Exception）正确上报
+- ✅ Pass: Poison List准确反映当前毒化地址（±1地址误差范围内）
+- ✅ Pass: 写入有效数据后Poison自动清除，List更新
+- ❌ Fail: Poison数据被缓存未命中时传播至其他地址
+
+#### TEST-RAS-007: Uncorrectable Error 处理
+**测试目的**: 验证不可纠正错误的处理流程
+
+**测试步骤**:
+1. 注入多bit错误（超出SEC能力）
+2. 验证设备进入写保护模式（如配置）
+3. 检查Event Log中Fatal级别记录
+4. 验证中断通知（MSI-X或FW First VDM）
+
+**判定标准**:
+- ✅ Pass: UE触发Fatal Event Record，时间戳准确
+- ✅ Pass: 如配置为只读模式，后续写操作被拒绝并记录
+- ✅ Pass: SMART中Uncorrected Errors计数器单调递增
+
+### 2.4 链路层 RAS 测试
+
+#### TEST-RAS-008: Link Layer Retry (LLR) 机制
+**测试目的**: 验证CXL链路CRC错误后的重传
+
+**测试步骤**:
+1. 使用协议分析仪或错误注入器在CXL.flit中注入CRC错误
+2. 监测链路层重传计数器（通过PCIe AER或CXL RAS Capability）
+3. 统计重传延迟与成功率
+
+**判定标准**:
+- ✅ Pass: CRC错误触发重传，数据最终正确接收，应用层无感知
+- ✅ Pass: 重传次数≤3次时恢复，LLR计数器正确累加
+- ❌ Fail: 重传失败导致链路降级（Link Down）或数据损坏
+- ❌ Fail: 重传延迟>100μs影响实时性应用
+
+#### TEST-RAS-009: 链路降速与恢复
+**测试目的**: 验证信号完整性恶化时的自适应降速
+
+**测试步骤**:
+1. 人为增加链路误码率（BER）（如通过物理层压力测试）
+2. 验证链路从CXL 3.0 x16降级至x8或Gen5→Gen4
+3. 移除干扰后验证链路自动恢复
+
+**判定标准**:
+- ✅ Pass: 误码率超过阈值（通常10^-12）触发降速，无系统崩溃
+- ✅ Pass: 降速后带宽符合PR-001规范（如x8 Gen5=56GB/s有效带宽）
+- ✅ Pass: 链路质量恢复后，支持热升级回高速度（如支持）
+
+### 2.5 可服务性 (Serviceability) 测试
+
+#### TEST-RAS-010: 四级事件日志系统
+**测试目的**: 验证Informational/Warning/Failure/Fatal分类
+
+**测试步骤**:
+1. 触发各类事件：温度警告（Warning）、ECC阈值（Failure）、UE（Fatal）
+2. 通过Mailbox `Get Event Records` (0x0101) 读取
+3. 验证 `Clear Event Records` (0x0102) 功能
+
+**判定标准**:
+- ✅ Pass: 事件正确分类，时间戳与主机同步（±1秒）
+- ✅ Pass: 各级别日志独立存储，互不影响
+- ✅ Pass: 日志满时按FIFO或覆盖策略处理（符合SPEC）
+- ✅ Pass: 清除操作仅清除指定级别，不影响其他级别
+
+#### TEST-RAS-011: SMART 健康监控精度
+**测试目的**: 验证RAS-005中定义的SMART指标准确性
+
+**测试步骤**:
+1. 持续运行压力测试，记录实际的ECC错误数
+2. 对比Mailbox `Get Health Info` (0x4200) 返回的Corrected Errors
+3. 监测Device Temperature与外部传感器差异
+4. 模拟异常断电，验证Dirty Shutdowns计数器
+
+**判定标准**:
+- ✅ Pass: SMART错误计数与实际注入误差<0.1%
+- ✅ Pass: 温度读数与热电偶差异<±2°C
+- ✅ Pass: 异常断电检测延迟<5秒
+- ✅ Pass: Life Used百分比基于NAND/DDR磨损模型准确计算（如适用）
+
+#### TEST-RAS-012: 中断通知机制
+**测试目的**: 验证OS First与FW First模式
+
+**测试步骤**:
+1. 配置 `Set Event Interrupt Policy` (0x0104) 为OS First
+2. 注入错误，验证MSI-X中断触发
+3. 切换为FW First，验证VDM消息发送
+4. 测试中断风暴防护（错误频发时去抖）
+
+**判定标准**:
+- ✅ Pass: OS First模式下，错误事件到中断延迟<1ms
+- ✅ Pass: FW First模式下，VDM消息格式符合CXL 3.1规范
+- ✅ Pass: 中断去抖机制防止CPU过载（如每秒最大中断数限制）
+
+---
+
+## 3. 测试工具推荐
+
+### 3.1 硬件工具
+
+| 工具类型 | 推荐设备 | 用途 | 关键配置 |
+|---------|---------|------|---------|
+| **协议分析仪** | Teledyne LeCroy Summit T48 / Keysight U4164A | CXL协议抓取、Flit级错误注入 | 支持CXL 3.0, 256B Flit模式 |
+| **PCIe 错误注入器** | SerialTek Kodiak PCIe Gen5 | 物理层错误注入、链路压力测试 | 支持Lane Skew、BER注入 |
+| **BMC/SCM 调试器** | ASPEED AST2600 开发板 | 带外管理、Mailbox命令直接下发 | 支持MCTP over SMBus/I2C |
+| **温度控制** | thermal streamer (如 ThermoStream E3200) | 高温RAS测试（>55°C） | 可控温区-40°C至+125°C |
+
+### 3.2 软件工具
+
+| 工具 | 来源 | 功能 | 使用场景 |
+|------|------|------|---------|
+| **cxl-cli** | Linux Kernel 6.2+ | Mailbox命令、事件日志读取、Poison管理 | 基础RAS功能验证 |
+| **rasdaemon** | Linux ras-utils | 记录CE/UE事件，与 EDAC 驱动配合 | 长期稳定性监测 |
+| **cxl-error-inject** | 自定义开发（基于libcxl） | 内核级DPA错误注入 | ECC/Poison测试 |
+| **stressapptest** | Google Open Source | 内存压力测试，支持错误注入钩子 | 内存子系统压力 |
+| **mlc (Memory Latency Checker)** | Intel | 带宽/延迟测试，NUMA感知 | 性能与RAS交叉验证 |
+| **pcie-gadget** | Linux kernel/tools | PCIe AER错误注入 | 链路层RAS测试 |
+
+### 3.3 诊断脚本示例
+
+```bash
+#!/bin/bash
+# CXL RAS 快速诊断脚本
+# 验证Mailbox、Event Log、SMART基础功能
+
+DEVICE="mem0"
+
+echo "=== CXL Device RAS Health Check ==="
+
+# 1. 基础识别
+cxl identify $DEVICE
+
+# 2. 健康状态检查
+cxl get-health $DEVICE | grep -E "(life_used|temperature|corrected_errors|uncorrected_errors)"
+
+# 3. 事件日志检查
+cxl get-event-log $DEVICE -m 4 | head -20  # 查看Fatal级别
+
+# 4. 毒化列表检查（如支持）
+cxl poison-list $DEVICE 2>/dev/null || echo "Poison List not supported"
+
+# 5. EDAC错误计数（如内核支持）
+grep "cxl" /sys/devices/system/edac/mc/*/ce_count 2>/dev/null
+
+echo "=== Check Complete ==="
+```
+
+---
+
+## 4. 风险点与注意事项
+
+### 4.1 高风险测试项
+
+#### RISK-001: 错误注入导致系统崩溃
+- **风险**: 注入Uncorrectable Error可能触发主机MCA（Machine Check Abort），导致系统panic
+- **缓解措施**: 
+  - 在测试BIOS中禁用`MCA recovery`或配置为`CMCI`（Corrected Machine Check Interrupt）模式
+  - 使用虚拟机或备用测试平台，避免生产环境
+  - 准备BMC watchdog，设置自动重启（<30秒超时）
+
+#### RISK-002: PPR 资源耗尽
+- **风险**: 过度测试sPPR/hPPR可能导致备用行耗尽，造成永久硬件损坏
+- **缓解措施**:
+  - 测试前查询PPR剩余资源（通过Vendor Specific Mailbox）
+  - 限制每日sPPR测试次数（建议<10次/天）
+  - 使用仿真/FPGA平台完成破坏性测试
+
+#### RISK-003: 持久内存数据丢失
+- **风险**: 测试Dirty Shutdown或Poison清除时，持久内存区域数据可能损坏
+- **缓解措施**:
+  - 测试前备份PMEM命名空间数据
+  - 使用`ndctl`创建测试用的dax设备，避免影响系统关键数据
+  - 验证`Get Shutdown State` (0x0204) 与 `Set Shutdown State` (0x0205) 的原子性
+
+### 4.2 平台依赖性风险
+
+#### RISK-004: 不同CPU
+

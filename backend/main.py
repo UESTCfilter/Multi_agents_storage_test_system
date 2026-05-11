@@ -13,7 +13,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.database import engine, get_db
-from backend.models import Base, Project, Deliverable, AgentLog, WorkflowState, Template
+from backend.models import Base, Project, Deliverable, AgentLog, WorkflowState, Template, LeCroyScript
 from backend.agents.coordinator import AgentCoordinator
 from backend.template_data import init_default_templates
 
@@ -229,6 +229,11 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    # 先删除关联数据（避免外键约束失败）
+    db.query(WorkflowState).filter(WorkflowState.project_id == project_id).delete(synchronize_session=False)
+    db.query(LeCroyScript).filter(LeCroyScript.project_id == project_id).delete(synchronize_session=False)
+    db.query(Deliverable).filter(Deliverable.project_id == project_id).delete(synchronize_session=False)
+    db.query(AgentLog).filter(AgentLog.project_id == project_id).delete(synchronize_session=False)
     db.delete(project)
     db.commit()
     return {"message": "Project deleted"}

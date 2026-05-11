@@ -6,10 +6,10 @@ import asyncio
 import os
 import httpx
 
-# LLM API 配置（当前：Moonshot Kimi k2.6）
-LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("MOONSHOT_API_KEY", "")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.moonshot.cn/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "kimi-k2.6")
+# LLM API 配置（支持 Moonshot / DeepSeek / OpenAI 兼容接口）
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or os.getenv("MOONSHOT_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
 
 
 class LLMAPIError(Exception):
@@ -29,7 +29,7 @@ async def call_llm(messages: list, temperature: float = 1.0, max_tokens: int = 4
         "temperature": temperature
     }
     
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         response = await client.post(
             f"{LLM_BASE_URL}/chat/completions",
             headers={
@@ -97,20 +97,67 @@ class TestingExpertAgent(BaseAgent):
         """去除LLM输出中的思考过程，只保留从第一个Markdown标题或正文开始的内容。"""
         if not text:
             return text
+        import re
         lines = text.split('\n')
+        start_idx = 0
         # 优先找到第一个 Markdown 标题行
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith('# ') or stripped.startswith('## '):
-                return '\n'.join(lines[i:]).strip()
-        # 无标题时，查找策略正文关键词
-        keywords = ['测试策略', '测试目标', '核心测试项', '测试范围', '测试设计',
-                    '测试用例', '1. 测试', '## 1.', '# 1.', '测试环境', '用例ID']
-        for i, line in enumerate(lines):
+                start_idx = i
+                break
+        else:
+            # 无标题时，查找策略正文关键词
+            keywords = ['测试策略', '测试目标', '核心测试项', '测试范围', '测试设计',
+                        '测试用例', '1. 测试', '## 1.', '# 1.', '测试环境', '用例ID']
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if any(kw in stripped for kw in keywords):
+                    start_idx = i
+                    break
+
+        # 从标题/正文开始，过滤掉思考过程段落
+        result = []
+        thinking_starts = ('我需要', '让我', '用户要求', '具体思考内容', '关键要求',
+                           '思考结构', '让我构思', '让我组织', '让我开始', '让我详细规划',
+                           '让我确保', '让我细化', '让我填充', '让我设计', '让我展开',
+                           '实际上', '实际上，', '等等，我需要', '让我确保', '然后按大类')
+        in_thinking_block = False
+
+        for i in range(start_idx, len(lines)):
+            line = lines[i]
             stripped = line.strip()
-            if any(kw in stripped for kw in keywords):
-                return '\n'.join(lines[i:]).strip()
-        return text.strip()
+
+            # 标题行永远保留，同时结束思考段落
+            if stripped.startswith('# ') or stripped.startswith('## ') or stripped.startswith('### '):
+                in_thinking_block = False
+                result.append(line)
+                continue
+
+            # 检测思考段落开始
+            if not in_thinking_block and any(stripped.startswith(ts) for ts in thinking_starts):
+                in_thinking_block = True
+                continue
+
+            # 思考段落内：如果遇到空行+下一行是标题或列表/表格，则结束
+            if in_thinking_block:
+                if stripped == '':
+                    # 空行：结束思考段落（保留空行用于后续内容分隔）
+                    in_thinking_block = False
+                    result.append(line)
+                continue
+
+            # 删除括号内的自我质疑（如"（...我需要...）"）
+            # 但保留非质疑性质的括号内容
+            cleaned = re.sub(r'[（(][^）)]*(?:我需要|让我|用户要求|思考|实际上|为了准确|不，)[^）)]*[）)]', '', line)
+            # 删除整句包含"让我"或"我需要"但非列表/表格/标题的行（残余思考过程）
+            stripped_clean = cleaned.strip()
+            if stripped_clean and not stripped_clean.startswith(('- ', '* ', '|', '#')) and not re.match(r'^\d+\.', stripped_clean):
+                if re.search(r'(?:^|[^a-zA-Z0-9])(?:我需要|让我)(?:$|[^a-zA-Z0-9])', stripped_clean):
+                    continue
+            result.append(cleaned)
+
+        return '\n'.join(result).strip()
 
     def _build_strategy_prompt(self, context: Dict[str, Any]) -> list:
         """构建策略生成 Prompt"""

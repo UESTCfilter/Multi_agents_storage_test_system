@@ -100,4 +100,4 @@ class DFXTestingExpert(TestingExpertAgent):
 **通过准则**: 正确识别故障类型和位置
 """
 
-            return {"success": True, "agent": self.name, "output": output, "task_type": task_type}
+        return {"success": True, "agent": self.name, "output": output, "task_type": task_type}

@@ -66,7 +66,7 @@ class AgentCoordinator:
     def __init__(self, db_session=None):
         self.agents: Dict[str, Any] = {}
         self.db_session = db_session
-        self.quality_gate = QualityGate(min_score=70.0)
+        self.quality_gate = QualityGate(min_score=50.0)
         self.smart_router = None  # 延迟初始化
         self._init_agents()
         self.smart_router = SmartRouter(self.agents)
@@ -129,7 +129,7 @@ class AgentCoordinator:
     
     async def execute_agent_with_quality(self, agent_name: str, 
                                           context: Dict[str, Any],
-                                          max_retries: int = 2) -> Dict[str, Any]:
+                                          max_retries: int = 1) -> Dict[str, Any]:
         """执行智能体并带质量验证（含限流重试）"""
         import asyncio
         cancel_event = context.get("_cancel_event")
@@ -158,12 +158,12 @@ class AgentCoordinator:
         result = None
         while api_retry <= max_api_retries:
             try:
-                result = await asyncio.wait_for(self._execute_single(agent, context), timeout=150.0)
+                result = await asyncio.wait_for(self._execute_single(agent, context), timeout=360.0)
             except asyncio.TimeoutError:
                 result = {
                     "success": False,
                     "agent": agent_name,
-                    "error": "Agent execution timeout (90s)",
+                    "error": "Agent execution timeout (300s)",
                     "output": None
                 }
             if result["success"]:

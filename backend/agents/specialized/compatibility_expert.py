@@ -97,4 +97,4 @@ class CompatibilityExpert(TestingExpertAgent):
 **通过准则**: 所有OS识别正常，性能达标
 """
 
-            return {"success": True, "agent": self.name, "output": output, "task_type": task_type}
+        return {"success": True, "agent": self.name, "output": output, "task_type": task_type}

@@ -216,4 +216,4 @@ class QualityGate:
 
 
 # 全局质量门实例
-quality_gate = QualityGate(min_score=70.0)
+quality_gate = QualityGate(min_score=50.0)

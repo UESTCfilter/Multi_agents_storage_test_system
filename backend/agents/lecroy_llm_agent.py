@@ -1373,7 +1373,8 @@ class LeCroyLLMAgent:
         ]
 
         # 4. 调用 LLM 生成
-        response = await call_kimi(messages, max_tokens=4000)
+        # 使用较大 max_tokens 避免 PEVS 被截断
+        response = await call_kimi(messages, max_tokens=8000)
 
         # 5. 解析结构化输出
         analysis, peg, pevs = await self._try_parse(response, description, test_name, messages, template_context, protocol_hint, rag_context)
@@ -1441,7 +1442,7 @@ class LeCroyLLMAgent:
             {"role": "user", "content": prompt}
         ]
 
-        response = await call_kimi(messages, max_tokens=4000)
+        response = await call_kimi(messages, max_tokens=8000)
 
         try:
             peg, pevs = _parse_code_blocks(response)
@@ -1527,30 +1528,86 @@ class LeCroyLLMAgent:
         rag_context: str
     ) -> Tuple[TestAnalysis, str, str]:
         """尝试解析 LLM 输出，失败时自动重试一次"""
+
+        def _is_pevs_complete(code: str) -> bool:
+            """检查 PEVS 代码结构是否完整（大括号匹配、包含 OnFinishScript 或 Success/Fail）"""
+            if not code or len(code.strip()) < 100:
+                return False
+            # 大括号匹配检查
+            brace_count = 0
+            for ch in code:
+                if ch == '{':
+                    brace_count += 1
+                elif ch == '}':
+                    brace_count -= 1
+            if brace_count != 0:
+                return False
+            # 检查是否有完整的结束逻辑
+            has_ending = any(kw in code for kw in ['OnFinishScript', 'Success_Complete', 'FailTest_Common', 'Check_Incomplete'])
+            # 检查函数定义是否都有闭合
+            func_defs = [m.start() for m in re.finditer(r'\w+\s*\(\)\s*\{', code)]
+            func_closes = [m.start() for m in re.finditer(r'^\s*\}', code, re.MULTILINE)]
+            # 粗略估计：每个函数至少需要一个闭合
+            if len(func_defs) > 0 and len(func_closes) < len(func_defs):
+                return False
+            return has_ending
+
+        def _is_peg_complete(code: str) -> bool:
+            """检查 PEG 代码是否完整（无未闭合块）"""
+            if not code or len(code.strip()) < 50:
+                return False
+            brace_count = 0
+            for ch in code:
+                if ch == '{':
+                    brace_count += 1
+                elif ch == '}':
+                    brace_count -= 1
+            return brace_count == 0
+
         # 第一次尝试
+        analysis = None
+        peg = ""
+        pevs = ""
         try:
             analysis = _parse_analysis(response)
             peg, pevs = _parse_code_blocks(response)
-            return analysis, peg, pevs
+            if _is_peg_complete(peg) and _is_pevs_complete(pevs):
+                return analysis, peg, pevs
         except ParseError:
             pass
 
         # 尝试 fallback 提取
-        peg, pevs = _fallback_extract(response)
-        
-        # 如果 fallback 提取的内容太少（< 5 行有效代码），自动重试
+        if not peg or not pevs:
+            peg, pevs = _fallback_extract(response)
+
+        # 完整性检查：如果 PEVS 被截断（大括号不匹配或缺少结束函数），触发重试
+        peg_ok = _is_peg_complete(peg)
+        pevs_ok = _is_pevs_complete(pevs)
+
+        # 如果 fallback 提取的内容太少（< 5 行有效代码）或结构不完整，自动重试
         peg_valid_lines = [l for l in peg.split('\n') if l.strip() and not l.strip().startswith(';') and not l.strip().startswith('#')]
         pevs_valid_lines = [l for l in pevs.split('\n') if l.strip() and not l.strip().startswith(';') and not l.strip().startswith('#')]
-        
-        if len(peg_valid_lines) < 5 or len(pevs_valid_lines) < 5:
-            # 重试：加严格约束提示
-            retry_messages = base_messages + [
-                {"role": "assistant", "content": response[:500]},
-                {"role": "user", "content": f"""上一次输出解析失败，原因可能是：
-1. <PEG> 或 <PEVS> 块内写了推理文字/自然语言
-2. 代码格式不正确
 
-请严格按照以下格式重新输出，绝对禁止在代码块内写任何解释：
+        if len(peg_valid_lines) < 5 or len(pevs_valid_lines) < 5 or not peg_ok or not pevs_ok:
+            retry_reason = ""
+            if len(peg_valid_lines) < 5:
+                retry_reason += "PEG 代码行数过少；"
+            if len(pevs_valid_lines) < 5:
+                retry_reason += "PEVS 代码行数过少；"
+            if not peg_ok:
+                retry_reason += "PEG 大括号不匹配；"
+            if not pevs_ok:
+                retry_reason += "PEVS 结构不完整（可能被截断）。"
+
+            retry_messages = base_messages + [
+                {"role": "assistant", "content": response[:800]},
+                {"role": "user", "content": f"""上一次输出解析失败，原因：{retry_reason}
+
+请严格按照以下格式重新输出，注意：
+1. 绝对禁止在 <PEG> 和 <PEVS> 块内写任何自然语言解释
+2. 确保 PEVS 代码完整闭合所有大括号 {{ }}
+3. 确保包含 OnFinishScript() 或 Success_Complete()/FailTest_Common() 以正常结束测试
+4. 如果测试步骤多，PEVS 代码可以精简日志输出以节省长度
 
 <ANALYSIS>
 协议: xxx
@@ -1577,22 +1634,24 @@ class LeCroyLLMAgent:
 {template_context}
 """}
             ]
-            retry_response = await call_kimi(retry_messages, max_tokens=4000)
+            retry_response = await call_kimi(retry_messages, max_tokens=8000)
             try:
                 analysis = _parse_analysis(retry_response)
                 peg, pevs = _parse_code_blocks(retry_response)
-                return analysis, peg, pevs
+                if _is_peg_complete(peg) and _is_pevs_complete(pevs):
+                    return analysis, peg, pevs
             except ParseError:
                 peg, pevs = _fallback_extract(retry_response)
 
         # 最终 fallback
-        analysis = TestAnalysis(
-            protocol="pcie_pl",
-            scenario="link_up",
-            test_steps=[],
-            checkpoints=[],
-            notes="解析降级：XML 解析失败，使用启发式提取"
-        )
+        if analysis is None:
+            analysis = TestAnalysis(
+                protocol="pcie_pl",
+                scenario="link_up",
+                test_steps=[],
+                checkpoints=[],
+                notes="解析降级：XML 解析失败，使用启发式提取"
+            )
         return analysis, peg, pevs
 
     def _ensure_header(self, content: str, test_name: str, script_type: str) -> str:

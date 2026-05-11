@@ -168,6 +168,10 @@ class ProjectResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ProjectListResponse(BaseModel):
+    total: int
+    items: List[ProjectResponse]
+
 class DeliverableResponse(BaseModel):
     id: int
     project_id: int
@@ -188,9 +192,11 @@ class WorkflowStatus(BaseModel):
     can_stop: bool = False
 
 # ========== Projects API ==========
-@app.get("/api/projects", response_model=List[ProjectResponse])
+@app.get("/api/projects", response_model=ProjectListResponse)
 def list_projects(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(Project).order_by(Project.created_at.desc()).offset(skip).limit(limit).all()
+    total = db.query(Project).count()
+    items = db.query(Project).order_by(Project.created_at.desc()).offset(skip).limit(limit).all()
+    return {"total": total, "items": items}
 
 @app.post("/api/projects", response_model=ProjectResponse)
 def create_project(project: ProjectCreate, db: Session = Depends(get_db)):

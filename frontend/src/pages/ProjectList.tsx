@@ -1,6 +1,6 @@
 import { FC, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, FolderOpen, ChevronRight, HardDrive, Cpu, Zap, Search, X } from 'lucide-react'
+import { Plus, FolderOpen, ChevronRight, HardDrive, Cpu, Zap, Search, X, Trash2, ChevronLeft, AlertTriangle } from 'lucide-react'
 import axios from 'axios'
 
 interface Project {
@@ -32,21 +32,30 @@ const statusConfig: Record<string, { label: string; class: string; dot: string }
   cancelled: { label: '已取消', class: 'bg-red-50 text-red-700 border border-red-200', dot: 'bg-red-500' },
 }
 
+const PAGE_SIZE = 10
+
 const ProjectList: FC = () => {
   const [projects, setProjects] = useState<Project[]>([])
+  const [total, setTotal] = useState(0)
+  const [currentPage, setCurrentPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
   const [newProject, setNewProject] = useState({ name: '', device_type: 'SSD', requirements: '' })
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   useEffect(() => {
     fetchProjects()
-  }, [])
+  }, [currentPage])
 
   const fetchProjects = async () => {
     try {
-      const res = await axios.get('/api/projects')
-      setProjects(res.data)
+      setLoading(true)
+      const skip = (currentPage - 1) * PAGE_SIZE
+      const res = await axios.get('/api/projects', { params: { skip, limit: PAGE_SIZE } })
+      setProjects(res.data.items)
+      setTotal(res.data.total)
     } catch (err) {
       console.error(err)
     } finally {
@@ -61,16 +70,61 @@ const ProjectList: FC = () => {
       await axios.post('/api/projects', newProject)
       setShowForm(false)
       setNewProject({ name: '', device_type: 'SSD', requirements: '' })
+      setCurrentPage(1)
       fetchProjects()
     } catch (err) {
       console.error(err)
     }
   }
 
+  const handleDeleteClick = (projectId: number, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDeletingId(projectId)
+    setShowDeleteConfirm(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!deletingId) return
+    try {
+      await axios.delete(`/api/projects/${deletingId}`)
+      setShowDeleteConfirm(false)
+      setDeletingId(null)
+      // 如果删除后当前页为空且不是第一页，回到上一页
+      const remainingOnPage = projects.filter(p => p.id !== deletingId).length
+      if (remainingOnPage === 0 && currentPage > 1) {
+        setCurrentPage(currentPage - 1)
+      } else {
+        fetchProjects()
+      }
+    } catch (err) {
+      console.error(err)
+      alert('删除项目失败')
+    }
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
   const filteredProjects = projects.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.device_type.toLowerCase().includes(search.toLowerCase())
   )
+
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = []
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i)
+    } else {
+      if (currentPage <= 3) {
+        pages.push(1, 2, 3, 4, '...', totalPages)
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages)
+      } else {
+        pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages)
+      }
+    }
+    return pages
+  }
 
   if (loading) {
     return (
@@ -176,38 +230,130 @@ const ProjectList: FC = () => {
             const status = statusConfig[project.status] || statusConfig.created
             const colorClass = deviceColors[project.device_type] || deviceColors.SSD
             return (
-              <Link
+              <div
                 key={project.id}
-                to={`/projects/${project.id}`}
                 className="group flex items-center gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-lg hover:shadow-slate-200/50 hover:border-slate-200 transition-all duration-300"
               >
-                {/* Icon */}
-                <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${colorClass} flex items-center justify-center shadow-lg shadow-slate-200/50 text-white shrink-0`}>
-                  {deviceIcons[project.device_type] || deviceIcons.SSD}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{project.name}</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-slate-400">{project.device_type}</span>
-                    <span className="text-slate-300">·</span>
-                    <span className="text-xs text-slate-400">{new Date(project.created_at).toLocaleDateString('zh-CN')}</span>
+                <Link
+                  to={`/projects/${project.id}`}
+                  className="flex items-center gap-4 flex-1 min-w-0"
+                >
+                  {/* Icon */}
+                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${colorClass} flex items-center justify-center shadow-lg shadow-slate-200/50 text-white shrink-0`}>
+                    {deviceIcons[project.device_type] || deviceIcons.SSD}
                   </div>
-                </div>
 
-                {/* Status */}
-                <div className={`status-badge ${status.class}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
-                  {status.label}
-                </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{project.name}</h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-slate-400">{project.device_type}</span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-xs text-slate-400">{new Date(project.created_at).toLocaleDateString('zh-CN')}</span>
+                    </div>
+                  </div>
 
-                <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0" />
-              </Link>
+                  {/* Status */}
+                  <div className={`status-badge ${status.class}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                    {status.label}
+                  </div>
+
+                  <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all shrink-0" />
+                </Link>
+
+                {/* Delete Button */}
+                <button
+                  onClick={(e) => handleDeleteClick(project.id, e)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all shrink-0"
+                  title="删除项目"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             )
           })
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          {getPageNumbers().map((page, idx) => (
+            <button
+              key={idx}
+              onClick={() => typeof page === 'number' && setCurrentPage(page)}
+              disabled={page === '...'}
+              className={`min-w-[36px] h-9 px-3 rounded-xl text-sm font-medium transition-all ${
+                page === currentPage
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : page === '...'
+                  ? 'text-slate-400 cursor-default'
+                  : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {page}
+            </button>
+          ))}
+
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          <span className="text-xs text-slate-400 ml-2">
+            共 {total} 条
+          </span>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 animate-slide-up">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">确认删除</h3>
+                <p className="text-sm text-slate-500">此操作不可撤销</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-6">
+              确定要删除项目 <span className="font-medium text-slate-800">"{projects.find(p => p.id === deletingId)?.name}"</span> 吗？所有相关的测试策略、设计、用例和脚本都会被一并删除。
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false)
+                  setDeletingId(null)
+                }}
+                className="btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

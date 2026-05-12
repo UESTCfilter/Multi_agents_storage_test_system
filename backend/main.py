@@ -800,6 +800,13 @@ def get_workflow_status(project_id: int, db: Session = Depends(get_db)):
             can_stop=False
         )
     
+    # 如果数据库显示 running 但内存中没有任务，说明服务可能重启过
+    # 自动修正状态，避免前端一直显示运行中
+    if workflow.status == "running" and task_info is None:
+        workflow.status = "idle"
+        workflow.message = "任务状态已重置（服务重启）"
+        db.commit()
+    
     return WorkflowStatus(
         status=workflow.status,
         current_stage=workflow.current_stage,
@@ -816,10 +823,20 @@ async def stop_workflow(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # 停止任务
+    # 尝试停止内存中的任务
     success = await task_manager.stop_task(project_id)
     
     if not success:
+        # 如果内存中没有运行中任务，但数据库状态显示正在生成
+        # 说明服务可能重启过，直接重置数据库状态即可
+        workflow = db.query(WorkflowState).filter(WorkflowState.project_id == project_id).first()
+        if workflow and workflow.status in ("running", "strategy_generating", "design_generating", "cases_generating"):
+            workflow.status = "cancelled"
+            workflow.message = "用户手动终止（任务已不在内存中）"
+            db.commit()
+            project.status = "cancelled"
+            db.commit()
+            return {"message": "任务已终止", "project_id": project_id}
         raise HTTPException(status_code=400, detail="没有运行中的任务")
     
     # 更新工作状态

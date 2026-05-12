@@ -571,6 +571,18 @@ const ProjectDetail: FC = () => {
 
       {/* 需求文档区域 */}
       <div className="animate-[slideUp_0.45s_ease-out]">
+        {/* 隐藏的 file input，始终存在以确保重新上传可用 */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.md,.docx"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) handleFileSelect(file)
+            e.target.value = ''
+          }}
+        />
         {project.requirements ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
@@ -612,17 +624,6 @@ const ProjectDetail: FC = () => {
               }
             `}
           >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".txt,.md,.docx"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) handleFileSelect(file)
-                e.target.value = ''
-              }}
-            />
             {uploading ? (
               <div className="flex flex-col items-center gap-3">
                 <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />

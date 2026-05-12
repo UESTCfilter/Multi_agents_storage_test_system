@@ -277,7 +277,7 @@ class TestingExpertAgent(BaseAgent):
                 ]
             
             # 调用 Kimi API
-            output = await call_kimi(messages, temperature=1.0, max_tokens=2000)
+            output = await call_kimi(messages, temperature=1.0, max_tokens=4000)
             # 过滤思考过程
             output = self._strip_thinking(output)
 

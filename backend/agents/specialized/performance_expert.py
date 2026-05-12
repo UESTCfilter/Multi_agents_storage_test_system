@@ -48,7 +48,7 @@ class PerformanceExpert(TestingExpertAgent):
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": user_msg}
             ]
-            output = await call_llm(messages, temperature=1.0, max_tokens=2000)
+            output = await call_llm(messages, temperature=1.0, max_tokens=4000)
             output = self._strip_thinking(output)
             if output and output.strip():
                 return {"success": True, "agent": self.name, "output": output, "task_type": task_type}
